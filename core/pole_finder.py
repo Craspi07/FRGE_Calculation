@@ -39,9 +39,16 @@ def extract_pole(integration_result, enhancement_4_3=True):
     y_arr = integration_result["y"]
     params = integration_result.get("params", {})
 
-    # Use the final state at t = N_max
-    t_final = t_arr[-1]
-    y_final = y_arr[:, -1]
+    # Prefer the phase-aligned endpoint (Requirement 3): mass pole depends on
+    # the exact phase at termination, not just the scale.  The integrator stores
+    # the dense-output evaluation at the last complete winding time so that the
+    # result is independent of the arbitrary cutoff phase.
+    if "y_phase_aligned" in integration_result:
+        y_final = integration_result["y_phase_aligned"]
+        t_final = integration_result["t_phase_aligned"]
+    else:
+        t_final = t_arr[-1]
+        y_final = y_arr[:, -1]
 
     k_final = M_PLANCK * np.exp(-t_final)
 

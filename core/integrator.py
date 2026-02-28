@@ -10,7 +10,10 @@ import numpy as np
 from scipy.integrate import solve_ivp
 
 from .wetterich import wetterich_rhs, get_default_params, get_initial_conditions
-from .spiral import phase_wrapping_times, count_spiral_windings
+from .spiral import (
+    phase_wrapping_times, count_spiral_windings,
+    compute_trajectory_polar, phase_aligned_time,
+)
 from config.parameters import (
     DEFAULT_RTOL, DEFAULT_ATOL, DEFAULT_N_MAX, DEFAULT_MAX_STEP,
     RESONANCE_N_MAX, T_RG, M_PLANCK, HIGGS_VEV
@@ -151,15 +154,44 @@ def run_integration(
         "wrap_times": wrap_times,
     }
 
+    # ── Phase tracking (Requirement 1) ────────────────────────────────────────
+    # Decompose trajectory into polar coordinates relative to fixed point.
+    # amplitude_norm ≈ const for ideal spiral; deviations flag numerical issues.
+    G_star      = params.get("G_star",      0.707)
+    Lambda_star = params.get("Lambda_star", 0.193)
+    amplitude_arr, phase_arr, amplitude_norm_arr = compute_trajectory_polar(
+        sol.t, sol.y[0], sol.y[1],
+        G_star=G_star, Lambda_star=Lambda_star, theta_r=_theta_r
+    )
+    endpoint_phase = float(phase_arr[-1] % (2.0 * np.pi))
+
+    # ── Phase-aligned endpoint (Requirement 3) ────────────────────────────────
+    # Evaluate the dense ODE solution at the last complete winding time.
+    # This removes artificial pole-mass dependence on the arbitrary cutoff phase.
+    t_aligned, n_aligned = phase_aligned_time(_N_max, _theta_i)
+    if t_aligned > 0.0 and sol.sol is not None:
+        y_phase_aligned = sol.sol(t_aligned)
+    else:
+        t_aligned       = float(sol.t[-1])
+        y_phase_aligned = sol.y[:, -1]
+
     return {
         "success":    True,
         "message":    sol.message,
         "t":          sol.t,
         "y":          sol.y,
-        "sol":        sol,          # dense solution for interpolation
+        "sol":        sol,                     # dense solution for interpolation
         "statistics": statistics,
         "params":     params,
-        "run_params": {"rtol": rtol, "atol": atol},   # numerical tolerances used
+        "run_params": {"rtol": rtol, "atol": atol},
+        # Phase tracking
+        "amplitude_arr":      amplitude_arr,
+        "phase_arr":          phase_arr,
+        "amplitude_norm_arr": amplitude_norm_arr,
+        "endpoint_phase":     endpoint_phase,
+        # Phase-aligned endpoint for pole extraction
+        "y_phase_aligned":    y_phase_aligned,
+        "t_phase_aligned":    t_aligned,
     }
 
 

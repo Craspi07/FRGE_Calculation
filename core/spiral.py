@@ -86,3 +86,67 @@ def spiral_velocity(t, G, Lambda, G_star, Lambda_star, theta_r, theta_i):
     dG = -theta_r * (G - G_star) + theta_i * (Lambda - Lambda_star)
     dLam = -theta_i * (G - G_star) - theta_r * (Lambda - Lambda_star)
     return dG, dLam
+
+
+def compute_trajectory_polar(t_arr, G_arr, Lambda_arr,
+                              G_star=G_STAR, Lambda_star=LAMBDA_STAR,
+                              theta_r=THETA_R):
+    """
+    Decompose the ODE trajectory into polar (amplitude, phase) coordinates
+    relative to the UV fixed point (G_star, Lambda_star).
+
+    For an ideal Reuter spiral:
+      amplitude(t) = exp(-theta_r * t) * r0   →  decays to zero
+      phase(t)     = -theta_i * t + phi0       →  advances monotonically
+      amplitude_norm(t) = amplitude(t) * exp(theta_r * t)  ≈  const
+
+    Parameters
+    ----------
+    t_arr : array-like  (n,)
+    G_arr : array-like  (n,)   G~ from ODE trajectory
+    Lambda_arr : array-like  (n,)   Lambda~ from ODE trajectory
+    G_star, Lambda_star : float   fixed-point coordinates
+    theta_r : float   real part of critical exponent
+
+    Returns
+    -------
+    amplitude : ndarray (n,)
+        |δu(t)| = sqrt((G-G*)^2 + (Λ-Λ*)^2)
+    phase : ndarray (n,)
+        Unwrapped phase = arctan2(Λ-Λ*, G-G*), monotonically advancing
+    amplitude_norm : ndarray (n,)
+        amplitude * exp(theta_r * t)  — should be ≈ constant for ideal spiral
+    """
+    t   = np.asarray(t_arr, dtype=float)
+    dG  = np.asarray(G_arr, dtype=float)  - G_star
+    dL  = np.asarray(Lambda_arr, dtype=float) - Lambda_star
+    amplitude      = np.sqrt(dG ** 2 + dL ** 2)
+    phase          = np.unwrap(np.arctan2(dL, dG))
+    amplitude_norm = amplitude * np.exp(theta_r * t)
+    return amplitude, phase, amplitude_norm
+
+
+def phase_aligned_time(N_max, theta_i=THETA_I):
+    """
+    Return the largest RG time t_aligned <= N_max that corresponds to a
+    complete spiral winding, i.e. t_aligned = n * 2*pi / theta_i.
+
+    Using the phase-aligned endpoint instead of the raw endpoint t=N_max
+    removes the artificial dependence of the extracted pole mass on the
+    arbitrary phase at termination.
+
+    Parameters
+    ----------
+    N_max : float   total RG time
+    theta_i : float  imaginary part of critical exponent
+
+    Returns
+    -------
+    t_aligned : float
+        Last complete-winding time (<= N_max)
+    n_windings : int
+        Number of complete windings contained in [0, N_max]
+    """
+    T = 2.0 * np.pi / theta_i
+    n = int(N_max / T)           # floor(N_max / T)
+    return n * T, n
