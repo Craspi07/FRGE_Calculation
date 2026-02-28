@@ -9,3 +9,11 @@ build/
 *.npz
 *.h5
 *.hdf5
+
+# Runtime output (logs, results, plots)
+output/
+
+# Stale root-level plots (now generated in output/plots/)
+dashboard.png
+convergence_plot.png
+parameter_scan_results.json

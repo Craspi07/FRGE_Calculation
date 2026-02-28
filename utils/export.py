@@ -4,9 +4,61 @@ import json
 import os
 import numpy as np
 
+# ── Output directory layout ──────────────────────────────────────────────────
+#   output/           ← logs, JSON results, summary .txt files
+#   output/plots/     ← all PNG figures
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUTPUT_DIR    = os.path.join(_PROJECT_ROOT, "output")
+PLOTS_DIR     = os.path.join(OUTPUT_DIR, "plots")
 
-def export_results_json(results, filepath):
-    """Export calculation results to JSON file."""
+
+def setup_output_dirs():
+    """Create output/ and output/plots/ if they don't exist."""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(PLOTS_DIR,  exist_ok=True)
+
+
+def output_path(filename):
+    """Return an absolute path inside output/."""
+    setup_output_dirs()
+    return os.path.join(OUTPUT_DIR, filename)
+
+
+def plots_path(filename):
+    """Return an absolute path inside output/plots/."""
+    setup_output_dirs()
+    return os.path.join(PLOTS_DIR, filename)
+
+
+def save_figure_png(fig, filename):
+    """
+    Save a matplotlib Figure as a PNG inside output/plots/.
+
+    Parameters
+    ----------
+    fig      : matplotlib.figure.Figure
+    filename : str   e.g. "dashboard.png"  (basename only, no directory)
+
+    Returns
+    -------
+    str  – the full path where the file was written
+    """
+    path = plots_path(filename)
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    return path
+
+
+def export_results_json(results, filepath=None):
+    """Export calculation results to JSON file.
+
+    If *filepath* is a bare filename (no directory component) it is placed
+    inside ``output/``.  Pass an absolute/relative path to override.
+    """
+    if filepath is None:
+        filepath = output_path("results.json")
+    elif not os.path.dirname(filepath):
+        filepath = output_path(filepath)
+
     def _convert(obj):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
@@ -29,8 +81,12 @@ def export_results_json(results, filepath):
     return filepath
 
 
-def export_trajectory_npz(t_arr, y_arr, filepath):
-    """Export trajectory data to numpy .npz file."""
+def export_trajectory_npz(t_arr, y_arr, filepath=None):
+    """Export trajectory data to numpy .npz file inside output/."""
+    if filepath is None:
+        filepath = output_path("trajectory")
+    elif not os.path.dirname(filepath):
+        filepath = output_path(filepath)
     np.savez_compressed(filepath, t=t_arr, y=y_arr)
     return filepath + ".npz"
 
@@ -41,8 +97,12 @@ def load_results_json(filepath):
         return json.load(f)
 
 
-def export_summary_txt(results, filepath):
-    """Export formatted summary text to file."""
+def export_summary_txt(results, filepath=None):
+    """Export formatted summary text to file inside output/."""
+    if filepath is None:
+        filepath = output_path("results_summary.txt")
+    elif not os.path.dirname(filepath):
+        filepath = output_path(filepath)
     lines = format_results_summary(results)
     with open(filepath, "w") as f:
         f.write("\n".join(lines))

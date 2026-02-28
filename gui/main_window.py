@@ -7,6 +7,7 @@ Launches a comprehensive dashboard with real-time monitoring.
 
 import sys
 import os
+import logging
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -29,7 +30,12 @@ from diagnostics.mixing_analysis import analyze_mixing_term
 from diagnostics.sphere_integral import verify_sphere_enhancement
 from diagnostics.phase_sensitivity import check_phase_sensitivity
 from diagnostics.parameter_scan import run_parameter_scan
-from utils.export import export_results_json, format_results_summary
+from utils.export import (
+    export_results_json, format_results_summary,
+    output_path, save_figure_png, setup_output_dirs,
+)
+
+logger = logging.getLogger(__name__)
 from gui.control_panel import ControlPanel
 from gui.dashboard import ProgressPanel, SpiralPlotPanel, MassExtractionPanel
 from gui.results_panel import build_results_dict, get_status
@@ -50,7 +56,23 @@ class MainWindow:
         self._pole_result = None
         self._running = False
 
+        # Ensure output dirs exist and attach a file log handler for the GUI
+        setup_output_dirs()
+        self._setup_file_logging()
+
         self._build_ui()
+
+    def _setup_file_logging(self):
+        """Attach a FileHandler to the root logger writing to output/gui.log."""
+        log_path = output_path("gui.log")
+        fmt = logging.Formatter(
+            "%(asctime)s  %(levelname)-8s  %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        fh = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+        fh.setFormatter(fmt)
+        logging.getLogger().addHandler(fh)
+        logger.info("GUI session started — log: %s", log_path)
 
     def _build_ui(self):
         # Main layout: sidebar + main content
@@ -149,7 +171,8 @@ class MainWindow:
         self.results_text.config(state=tk.DISABLED)
 
     def _log_diagnostic(self, message):
-        """Append a message to the diagnostics log."""
+        """Append a message to the diagnostics log and write it to the log file."""
+        logger.info(message)
         self.diag_text.config(state=tk.NORMAL)
         self.diag_text.insert(tk.END, message + "\n")
         self.diag_text.see(tk.END)
@@ -243,7 +266,7 @@ class MainWindow:
             "Parameter Scan",
             "Parameter scan will run in background.\n"
             "Check Diagnostics Log for progress.\n"
-            "Results will be saved to parameter_scan_results.json"
+            f"Results will be saved to output/parameter_scan_results.json"
         )
 
         def _run_scan():
@@ -261,8 +284,8 @@ class MainWindow:
             f"Scan complete. Sweet spot: theta_i={sweet.get('theta_i', '?'):.4f}, "
             f"N_max={sweet.get('N_max', '?'):.4f}, m_h={sweet.get('m_h', '?'):.3f} GeV"
         )
-        export_results_json(result, "parameter_scan_results.json")
-        self._log_diagnostic("Saved to parameter_scan_results.json")
+        json_path = export_results_json(result, "parameter_scan_results.json")
+        self._log_diagnostic(f"Saved to {json_path}")
 
     def _on_convergence(self):
         params = self.control_panel.get_params()
@@ -301,7 +324,9 @@ class MainWindow:
         if self._integration_result is None:
             messagebox.showwarning("No Data", "Run integration first.")
             return
+        from utils.export import OUTPUT_DIR
         filepath = filedialog.asksaveasfilename(
+            initialdir=OUTPUT_DIR,
             defaultextension=".json",
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
             title="Export Results"
@@ -312,6 +337,22 @@ class MainWindow:
                 results_dict = build_results_dict(self._integration_result, self._pole_result)
                 export_results_json(results_dict, filepath)
                 self._log_diagnostic(f"Results exported to {filepath}")
+
+                # Also save dashboard PNG to output/plots/
+                try:
+                    from gui.plots import create_full_dashboard
+                    import matplotlib
+                    matplotlib.use("Agg")
+                    import matplotlib.pyplot as plt
+                    fig = create_full_dashboard(
+                        self._integration_result, self._pole_result
+                    )
+                    png_path = save_figure_png(fig, "dashboard.png")
+                    plt.close(fig)
+                    self._log_diagnostic(f"Dashboard PNG saved to {png_path}")
+                except Exception as plot_exc:
+                    self._log_diagnostic(f"Could not save dashboard PNG: {plot_exc}")
+
                 messagebox.showinfo("Export", f"Data saved to:\n{filepath}")
             except Exception as e:
                 messagebox.showerror("Export Error", str(e))

@@ -10,16 +10,62 @@ Usage:
     python main.py --benchmark      # Run performance benchmarks
     python main.py --test           # Run unit tests
     python main.py --scan           # Run parameter scan
+
+Outputs
+-------
+All log files are written to  output/
+All PNG plots are written to  output/plots/
 """
 
 import sys
 import os
 import argparse
+import logging
 import numpy as np
 
 # Ensure package root is on path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from utils.export import (
+    OUTPUT_DIR, PLOTS_DIR, setup_output_dirs,
+    output_path, save_figure_png, export_results_json,
+)
+
+# ── Logging setup ─────────────────────────────────────────────────────────────
+
+def setup_logging(level=logging.INFO):
+    """
+    Configure root logger to write to both the console and
+    output/frge_calculation.log.
+    """
+    setup_output_dirs()
+    log_path = output_path("frge_calculation.log")
+
+    fmt = logging.Formatter(
+        "%(asctime)s  %(levelname)-8s  %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    root = logging.getLogger()
+    root.setLevel(level)
+
+    # Console handler
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setFormatter(fmt)
+    root.addHandler(ch)
+
+    # File handler  →  output/frge_calculation.log
+    fh = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+    fh.setFormatter(fmt)
+    root.addHandler(fh)
+
+    return log_path
+
+
+logger = logging.getLogger(__name__)
+
+
+# ── Headless mode ─────────────────────────────────────────────────────────────
 
 def run_headless(args):
     """Run calculation in headless mode (no GUI)."""
@@ -40,13 +86,12 @@ def run_headless(args):
     rtol    = getattr(args, 'rtol', DEFAULT_RTOL)
     atol    = getattr(args, 'atol', DEFAULT_ATOL)
 
-    print("=" * 60)
-    print("HIGGS PROPAGATOR CALCULATION - Reuter Spiral Background")
-    print("=" * 60)
-    print(f"Parameters: theta_r={theta_r}, theta_i={theta_i}, N_max={N_max:.4f}")
-    print(f"Tolerances: rtol={rtol:.2e}, atol={atol:.2e}")
-    print()
-    print("Running FRGE integration...")
+    logger.info("=" * 60)
+    logger.info("HIGGS PROPAGATOR CALCULATION - Reuter Spiral Background")
+    logger.info("=" * 60)
+    logger.info(f"Parameters: theta_r={theta_r}, theta_i={theta_i}, N_max={N_max:.4f}")
+    logger.info(f"Tolerances: rtol={rtol:.2e}, atol={atol:.2e}")
+    logger.info("Running FRGE integration...")
 
     # Integration
     result = run_integration(
@@ -55,27 +100,26 @@ def run_headless(args):
     )
 
     if not result["success"]:
-        print(f"Integration FAILED: {result.get('message')}")
+        logger.error(f"Integration FAILED: {result.get('message')}")
         return 1
 
     stats = result["statistics"]
-    print(f"Integration complete in {stats['cpu_time']:.1f}s")
-    print(f"Steps: {stats['n_steps']:,} | Windings: {stats['windings']:.2f}")
-    print()
+    logger.info(f"Integration complete in {stats['cpu_time']:.1f}s")
+    logger.info(f"Steps: {stats['n_steps']:,} | Windings: {stats['windings']:.2f}")
 
     # Pole extraction
-    print("Extracting Higgs pole mass...")
+    logger.info("Extracting Higgs pole mass...")
     pole_result = extract_pole(result)
 
     if not pole_result.get("success"):
-        print(f"Pole extraction FAILED: {pole_result.get('message')}")
-        print("Trying with fallback parameters...")
+        logger.warning(f"Pole extraction FAILED: {pole_result.get('message')}")
+        logger.warning("Trying with fallback parameters...")
 
     m_h = pole_result.get("m_h", float("nan"))
     m_h_unc = pole_result.get("m_h_uncertainty", float("nan"))
 
     # Diagnostics
-    print("Computing diagnostics...")
+    logger.info("Computing diagnostics...")
     mixing_result = analyze_mixing_term(result)
     sphere_result = verify_sphere_enhancement(n_samples=50000)
 
@@ -83,24 +127,66 @@ def run_headless(args):
     from gui.results_panel import build_results_dict
     results_dict = build_results_dict(result, pole_result, mixing_result, sphere_result)
     lines = format_results_summary(results_dict)
-    print()
-    print("\n".join(lines))
-    print()
+    for line in lines:
+        logger.info(line)
+
+    # ── Save results to output/ ──────────────────────────────────────────────
+    json_path = export_results_json(results_dict, "results.json")
+    logger.info(f"Results JSON  →  {json_path}")
+
+    from utils.export import export_summary_txt
+    txt_path = export_summary_txt(results_dict, "results_summary.txt")
+    logger.info(f"Results text  →  {txt_path}")
+
+    # ── Save plots to output/plots/ ──────────────────────────────────────────
+    try:
+        from gui.plots import create_full_dashboard
+        import matplotlib
+        matplotlib.use("Agg")
+        fig = create_full_dashboard(result, pole_result)
+        png_path = save_figure_png(fig, "dashboard.png")
+        logger.info(f"Dashboard PNG →  {png_path}")
+        import matplotlib.pyplot as plt
+        plt.close(fig)
+    except Exception as exc:
+        logger.warning(f"Could not save dashboard plot: {exc}")
+
+    try:
+        _save_convergence_plot(result, pole_result)
+    except Exception as exc:
+        logger.warning(f"Could not save convergence plot: {exc}")
 
     # Validation
-    theory_agreement = abs(m_h - HIGGS_MASS_THEORY) if not np.isnan(m_h) else float("nan")
-    exp_agreement = abs(m_h - HIGGS_MASS_EXP) if not np.isnan(m_h) else float("nan")
-
     if not np.isnan(m_h) and 125.0 <= m_h <= 125.4:
-        print("STATUS: [+ CONFIRMED] Theory validated within precision")
+        logger.info("STATUS: [+ CONFIRMED] Theory validated within precision")
         return 0
     elif not np.isnan(m_h) and 124.0 <= m_h <= 126.5:
-        print("STATUS: [~ MARGINAL] Close to target, needs investigation")
+        logger.info("STATUS: [~ MARGINAL] Close to target, needs investigation")
         return 0
     else:
-        print(f"STATUS: [X FAILED] m_h = {m_h:.3f} GeV outside expected range")
+        logger.error(f"STATUS: [X FAILED] m_h = {m_h:.3f} GeV outside expected range")
         return 1
 
+
+def _save_convergence_plot(result, pole_result):
+    """Save a standalone convergence / distance-to-fixed-point PNG."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from gui.plots import plot_distance_to_fixed_point
+
+    t_arr = result["t"]
+    G_arr = result["y"][0]
+    Lambda_arr = result["y"][1]
+    theta_r = result.get("params", {}).get("theta_r", 2.714)
+
+    fig, ax = plot_distance_to_fixed_point(t_arr, G_arr, Lambda_arr, theta_r)
+    png_path = save_figure_png(fig, "convergence_plot.png")
+    logger.info(f"Convergence PNG →  {png_path}")
+    plt.close(fig)
+
+
+# ── Benchmark / test / scan modes ─────────────────────────────────────────────
 
 def run_benchmark():
     """Run performance benchmarks."""
@@ -120,18 +206,21 @@ def run_tests():
 
 
 def run_scan():
-    """Run parameter scan and save results."""
+    """Run parameter scan and save results to output/."""
     from diagnostics.parameter_scan import run_parameter_scan
-    from utils.export import export_results_json
-    print("Running parameter scan (this may take several minutes)...")
+    logger.info("Running parameter scan (this may take several minutes)...")
     result = run_parameter_scan(n_jobs=-1)
-    export_results_json(result, "parameter_scan_results.json")
+    json_path = export_results_json(result, "parameter_scan_results.json")
     sweet = result.get("sweet_spot", {})
-    print(f"Sweet spot: theta_i={sweet.get('theta_i','?'):.4f}, "
-          f"N_max={sweet.get('N_max','?'):.4f}, m_h={sweet.get('m_h','?'):.3f} GeV")
-    print("Results saved to parameter_scan_results.json")
+    logger.info(
+        f"Sweet spot: theta_i={sweet.get('theta_i','?'):.4f}, "
+        f"N_max={sweet.get('N_max','?'):.4f}, m_h={sweet.get('m_h','?'):.3f} GeV"
+    )
+    logger.info(f"Results saved to {json_path}")
     return 0
 
+
+# ── GUI ───────────────────────────────────────────────────────────────────────
 
 def launch_gui():
     """Launch the tkinter GUI application."""
@@ -143,15 +232,15 @@ def launch_gui():
         root.mainloop()
         return 0
     except ImportError as e:
-        print(f"GUI requires tkinter: {e}")
-        print("Falling back to headless mode...")
+        logger.error(f"GUI requires tkinter: {e}")
+        logger.info("Falling back to headless mode...")
         return run_headless(argparse.Namespace())
     except Exception as e:
-        print(f"GUI error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"GUI error: {e}")
         return 1
 
+
+# ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(
@@ -177,6 +266,11 @@ def main():
                         help="Absolute tolerance (default: 1e-10)")
 
     args = parser.parse_args()
+
+    log_path = setup_logging()
+    logger.info(f"Log file: {log_path}")
+    logger.info(f"Output dir: {OUTPUT_DIR}")
+    logger.info(f"Plots dir:  {PLOTS_DIR}")
 
     if args.benchmark:
         return run_benchmark()
