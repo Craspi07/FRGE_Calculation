@@ -68,26 +68,61 @@ POLE_SEARCH_MAX = -(120.0 ** 2)   # p^2 upper bound (GeV^2)
 POLE_SEARCH_POINTS = 200          # Number of evaluation points
 
 # =============================================================================
-# Diagnostic thresholds
+# Success criteria  (Part 7 of specification)
 # =============================================================================
-PHASE_SENSITIVITY_THRESHOLD = 0.1   # GeV - max allowed std(m_h) over period
-CONVERGENCE_THRESHOLD = 0.005       # GeV - mass convergence criterion
-MIXING_RATIO_MIN = 0.28
-MIXING_RATIO_MAX = 0.38
-SPHERE_RATIO_MIN = 1.28
-SPHERE_RATIO_MAX = 1.38
+HIGGS_MASS_TARGET_MIN  = 125.1   # GeV  ─ lower bound of CONFIRMED window (spec)
+HIGGS_MASS_TARGET_MAX  = 125.3   # GeV  ─ upper bound of CONFIRMED window (spec)
+HIGGS_MASS_MARGINAL_MIN = 124.0  # GeV  ─ lower bound of MARGINAL window
+HIGGS_MASS_MARGINAL_MAX = 126.5  # GeV  ─ upper bound of MARGINAL window
 
 # =============================================================================
-# Parameter scan ranges
+# Diagnostic thresholds
 # =============================================================================
+PHASE_SENSITIVITY_THRESHOLD = 0.1    # GeV  ─ spec: std(m_h) < 0.1 GeV over period
+CONVERGENCE_THRESHOLD = 0.005        # GeV  ─ spec: Δm_h < 0.01 GeV (0.005 is stricter)
+MIXING_RATIO_TARGET   = 1.0 / 3.0   # spec: ≈ 1/3
+MIXING_RATIO_TOLERANCE = 0.05        # spec: ± 0.05
+MIXING_RATIO_MIN = MIXING_RATIO_TARGET - MIXING_RATIO_TOLERANCE   # ≈ 0.283
+MIXING_RATIO_MAX = MIXING_RATIO_TARGET + MIXING_RATIO_TOLERANCE   # ≈ 0.383
+SPHERE_RATIO_TARGET   = 4.0 / 3.0   # spec: ≈ 4/3
+SPHERE_RATIO_TOLERANCE = 0.05        # spec: ± 0.05
+SPHERE_RATIO_MIN = SPHERE_RATIO_TARGET - SPHERE_RATIO_TOLERANCE   # ≈ 1.283
+SPHERE_RATIO_MAX = SPHERE_RATIO_TARGET + SPHERE_RATIO_TOLERANCE   # ≈ 1.383
+
+# =============================================================================
+# Parameter scan ranges  (used by run_parameter_scan and run_full_grid_scan)
+# =============================================================================
+
+# ── existing 2-D grid ─────────────────────────────────────────────────────────
 SCAN_THETA_I_MIN = 2.30
 SCAN_THETA_I_MAX = 2.50
-SCAN_THETA_I_POINTS = 20   # Reduced for speed
+SCAN_THETA_I_POINTS = 20
 
 SCAN_N_MAX_MIN = 38.0
 SCAN_N_MAX_MAX = 40.0
-SCAN_N_MAX_POINTS = 20   # Reduced for speed
+SCAN_N_MAX_POINTS = 20
 
-# Monte Carlo uncertainty propagation
+# ── additional axes for full 3-D grid ─────────────────────────────────────────
+SCAN_THETA_R_MIN    = 2.50
+SCAN_THETA_R_MAX    = 3.00
+SCAN_THETA_R_POINTS = 15
+
+# ── 1-D sensitivity sweep ranges ──────────────────────────────────────────────
+# A_G  (initial Newton-coupling perturbation amplitude)
+SCAN_A_G_MIN    = 0.01
+SCAN_A_G_MAX    = 0.15
+SCAN_A_G_POINTS = 20
+
+# A_Lambda  (initial cosmological-constant perturbation amplitude)
+SCAN_A_LAMBDA_MIN    = 0.005
+SCAN_A_LAMBDA_MAX    = 0.10
+SCAN_A_LAMBDA_POINTS = 20
+
+# delta_Lambda  (initial phase of Lambda spiral component)
+SCAN_DELTA_LAMBDA_MIN    = 0.0
+SCAN_DELTA_LAMBDA_MAX    = np.pi / 2.0
+SCAN_DELTA_LAMBDA_POINTS = 20
+
+# ── Monte Carlo uncertainty propagation ───────────────────────────────────────
 MC_THETA_I_SIGMA = 0.05
-MC_N_SAMPLES = 200   # Reduced for reasonable runtime
+MC_N_SAMPLES = 200

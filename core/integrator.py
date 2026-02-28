@@ -152,13 +152,14 @@ def run_integration(
     }
 
     return {
-        "success": True,
-        "message": sol.message,
-        "t": sol.t,
-        "y": sol.y,
-        "sol": sol,    # Keep dense solution for interpolation
+        "success":    True,
+        "message":    sol.message,
+        "t":          sol.t,
+        "y":          sol.y,
+        "sol":        sol,          # dense solution for interpolation
         "statistics": statistics,
-        "params": params,
+        "params":     params,
+        "run_params": {"rtol": rtol, "atol": atol},   # numerical tolerances used
     }
 
 

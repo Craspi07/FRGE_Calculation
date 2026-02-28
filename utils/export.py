@@ -109,61 +109,100 @@ def export_summary_txt(results, filepath=None):
     return filepath
 
 
+def _pf(condition):
+    """Return '[PASS]' or '[FAIL]' string for display."""
+    return "[PASS]" if condition else "[FAIL]"
+
+
 def format_results_summary(results):
-    """Format results dictionary into display-ready lines."""
-    m_h = results.get("m_h", float("nan"))
+    """
+    Format results dictionary into display-ready lines with pass/fail indicators.
+
+    Success criteria (Part 7 of specification):
+      m_h ∈ [125.1, 125.3] GeV                → CONFIRMED
+      Off-diagonal mixing ratio ≈ 1/3 ± 0.05  → PASS
+      S² enhancement ≈ 4/3 ± 0.05             → PASS
+      Phase sensitivity < 0.1 GeV             → PASS
+      Convergence Δm_h < 0.01 GeV             → PASS
+    """
+    from config.parameters import (
+        HIGGS_MASS_TARGET_MIN, HIGGS_MASS_TARGET_MAX,
+        HIGGS_MASS_MARGINAL_MIN, HIGGS_MASS_MARGINAL_MAX,
+        MIXING_RATIO_MIN, MIXING_RATIO_MAX, MIXING_RATIO_TARGET,
+        SPHERE_RATIO_MIN, SPHERE_RATIO_MAX, SPHERE_RATIO_TARGET,
+        PHASE_SENSITIVITY_THRESHOLD, CONVERGENCE_THRESHOLD,
+    )
+
+    m_h     = results.get("m_h", float("nan"))
     m_h_err = results.get("m_h_uncertainty", 0.0)
-    theory = 125.19
+    theory  = 125.19
     exp_val = 125.25
 
     theory_agree = abs(m_h - theory) / theory * 100.0 if not np.isnan(m_h) else float("nan")
-    exp_agree = abs(m_h - exp_val) / exp_val * 100.0 if not np.isnan(m_h) else float("nan")
+    exp_agree    = abs(m_h - exp_val) / exp_val * 100.0 if not np.isnan(m_h) else float("nan")
 
-    if not np.isnan(m_h) and 125.0 <= m_h <= 125.4:
-        status = "CONFIRMED"
-        status_char = "+"
-    elif not np.isnan(m_h) and 124.0 <= m_h <= 126.5:
-        status = "MARGINAL"
-        status_char = "~"
+    # Status using spec-defined window [125.1, 125.3]
+    if not np.isnan(m_h) and HIGGS_MASS_TARGET_MIN <= m_h <= HIGGS_MASS_TARGET_MAX:
+        status, status_char = "CONFIRMED", "+"
+    elif not np.isnan(m_h) and HIGGS_MASS_MARGINAL_MIN <= m_h <= HIGGS_MASS_MARGINAL_MAX:
+        status, status_char = "MARGINAL", "~"
     else:
-        status = "FAILED"
-        status_char = "X"
+        status, status_char = "FAILED", "X"
 
-    diag = results.get("diagnostics", {})
-    stats = results.get("statistics", {})
+    diag   = results.get("diagnostics", {})
+    stats  = results.get("statistics", {})
     params = results.get("parameters", {})
 
-    sep = "=" * 55
+    mix   = diag.get("mixing_ratio",      float("nan"))
+    sph   = diag.get("sphere_ratio",      float("nan"))
+    phase = diag.get("phase_sensitivity", float("nan"))
+    conv  = diag.get("convergence_metric", float("nan"))
+
+    mass_ok  = not np.isnan(m_h)    and HIGGS_MASS_TARGET_MIN <= m_h    <= HIGGS_MASS_TARGET_MAX
+    mix_ok   = not np.isnan(mix)    and MIXING_RATIO_MIN       <= mix    <= MIXING_RATIO_MAX
+    sph_ok   = not np.isnan(sph)    and SPHERE_RATIO_MIN        <= sph   <= SPHERE_RATIO_MAX
+    phase_ok = not np.isnan(phase)  and phase < PHASE_SENSITIVITY_THRESHOLD
+    conv_ok  = not np.isnan(conv)   and conv  < CONVERGENCE_THRESHOLD
+
+    rtol = params.get("rtol", float("nan"))
+    atol = params.get("atol", float("nan"))
+    rtol_s = f"{rtol:.2e}" if not np.isnan(rtol) else "---"
+    atol_s = f"{atol:.2e}" if not np.isnan(atol) else "---"
+
+    sep = "=" * 64
     lines = [
         sep,
         "  HIGGS MASS EXTRACTION RESULTS",
         sep,
-        f"  Extracted mass:         {m_h:.2f} +/- {m_h_err:.2f} GeV",
-        f"  Theoretical prediction:  125.19 GeV",
-        f"  Experimental value:      125.25 +/- 0.17 GeV",
+        f"  Extracted mass:            {m_h:.4f} +/- {m_h_err:.4f} GeV   {_pf(mass_ok)}",
+        f"  Theoretical prediction:    {theory:.2f} GeV  (4/3 × θ_i/2π × v)",
+        f"  Experimental value:        {exp_val:.2f} ± 0.17 GeV  (PDG 2023)",
+        f"  Confirmed window:          [{HIGGS_MASS_TARGET_MIN:.1f}, {HIGGS_MASS_TARGET_MAX:.1f}] GeV",
         "",
-        f"  Agreement with theory:   {theory_agree:.3f}%",
-        f"  Agreement with exp.:     {exp_agree:.3f}%",
-        f"  Status:                  [{status_char} {status}]",
+        f"  Agreement with theory:     {theory_agree:.4f}%",
+        f"  Agreement with exp.:       {exp_agree:.4f}%",
+        f"  Status:                    [{status_char} {status}]",
         "",
-        "  DIAGNOSTIC VALUES:",
-        f"  Off-diagonal mixing:     {diag.get('mixing_ratio', float('nan')):.4f}  (expected: ~0.333)",
-        f"  S2 enhancement factor:   {diag.get('sphere_ratio', float('nan')):.3f}   (expected: 1.333)",
-        f"  Phase sensitivity:       {diag.get('phase_sensitivity', float('nan')):.3f} GeV  (< 0.1)",
-        f"  Convergence metric:      {diag.get('convergence_metric', float('nan')):.2e}  (target: < 1e-6)",
+        "  DIAGNOSTIC VALUES                   TARGET          RESULT",
+        "  " + "-" * 60,
+        f"  Off-diagonal mixing:       {mix:7.4f}   ~{MIXING_RATIO_TARGET:.3f} ± 0.05   {_pf(mix_ok)}",
+        f"  S² enhancement factor:     {sph:7.4f}   ~{SPHERE_RATIO_TARGET:.3f} ± 0.05   {_pf(sph_ok)}",
+        f"  Phase sensitivity:         {phase:7.4f} GeV   < {PHASE_SENSITIVITY_THRESHOLD:.1f} GeV      {_pf(phase_ok)}",
+        f"  Convergence Δm_h:          {conv:.2e}   < {CONVERGENCE_THRESHOLD:.0e}         {_pf(conv_ok)}",
         "",
         "  INTEGRATION STATISTICS:",
-        f"  Total RG time:           {stats.get('N_max', float('nan')):.2f} e-folds",
-        f"  Integration steps:       {stats.get('n_steps', 0):,}",
-        f"  Spiral windings:         {stats.get('windings', float('nan')):.2f}  (expected: ~15)",
-        f"  Computation time:        {stats.get('cpu_time', float('nan')):.1f} seconds",
-        f"  Average step size:       {stats.get('avg_step', float('nan')):.2e} e-folds",
+        f"  Total RG time:             {stats.get('N_max', float('nan')):.4f} e-folds",
+        f"  Integration steps:         {stats.get('n_steps', 0):,}",
+        f"  Spiral windings:           {stats.get('windings', float('nan')):.2f}   (expected: ~15)",
+        f"  Computation time:          {stats.get('cpu_time', float('nan')):.2f} s",
+        f"  Avg / Min / Max step:      {stats.get('avg_step', float('nan')):.2e} / {stats.get('min_step', float('nan')):.2e} / {stats.get('max_step', float('nan')):.2e} e-folds",
         "",
         "  PARAMETER VALUES USED:",
-        f"  theta_r = {params.get('theta_r', float('nan')):.5f}    theta_i = {params.get('theta_i', float('nan')):.5f}",
-        f"  rtol    = {params.get('rtol', float('nan')):.2e}    atol    = {params.get('atol', float('nan')):.2e}",
-        f"  N_max   = {params.get('N_max', float('nan')):.5f}",
-        f"  G*      = {params.get('G_star', float('nan')):.5f}    Lambda* = {params.get('Lambda_star', float('nan')):.5f}",
+        f"  θ_r   = {params.get('theta_r', float('nan')):.5f}    θ_i  = {params.get('theta_i', float('nan')):.5f}",
+        f"  rtol  = {rtol_s}    atol = {atol_s}",
+        f"  N_max = {params.get('N_max', float('nan')):.5f} e-folds",
+        f"  G*    = {params.get('G_star', float('nan')):.5f}    Λ*   = {params.get('Lambda_star', float('nan')):.5f}",
+        f"  A_G   = {params.get('A_G', float('nan')):.5f}    A_Λ  = {params.get('A_Lambda', float('nan')):.5f}",
         sep,
     ]
     return lines
